@@ -1,0 +1,14 @@
+# Python virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# Large data files
+data/
+results/
+
+# Logs
+logs/
+
+# OS files
+.DS_Store
