@@ -3,15 +3,15 @@ version: '3.8'
 services:
   virushunter:
     build:
-      context: ..
+      context: .
       dockerfile: docker/Dockerfile
     container_name: virushunter_app
     ports:
       - "8501:8501"
     volumes:
-      - ../data:/app/data
-      - ../models:/app/models
-      - ../results:/app/results
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./results:/app/results
     environment:
       - OLLAMA_BASE_URL=http://51.254.200.139:11434
       - OLLAMA_MODEL=llama3:8b
