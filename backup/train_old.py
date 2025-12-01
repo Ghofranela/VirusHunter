@@ -138,7 +138,7 @@ def main():
     except FileNotFoundError:
         print("❌ Error: Processed data not found!")
         print("Please run preprocessing first:")
-        print("  python run_preprocessing.py")
+        print("  python scripts/preprocess.py")
         sys.exit(1)
     
     if args.eval_only:

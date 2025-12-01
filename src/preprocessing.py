@@ -1,6 +1,7 @@
 """
-EMBER Dataset Preprocessing and Feature Engineering
+Malware Dataset Preprocessing and Feature Engineering
 Handles static PE features, dynamic behavior, and raw bytes
+Uses synthetic data generator when EMBER is unavailable
 """
 import numpy as np
 import pandas as pd
@@ -12,7 +13,16 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.model_selection import train_test_split
 import joblib
 from tqdm import tqdm
-import ember
+
+# Import our synthetic data generator
+from .data_generator import MalwareDataGenerator
+
+try:
+    import ember
+    EMBER_AVAILABLE = True
+except ImportError:
+    EMBER_AVAILABLE = False
+    print("EMBER package not available. Using synthetic data generator.")
 
 
 class EMBERPreprocessor:
@@ -33,38 +43,61 @@ class EMBERPreprocessor:
         self.feature_names = None
         
     def download_ember(self):
-        """Download EMBER dataset"""
-        print(f"Downloading EMBER v{self.version}...")
+        """Download EMBER dataset or prepare synthetic data"""
+        print(f"Preparing data in {self.data_dir}...")
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        
-        if self.version == 2:
+
+        if EMBER_AVAILABLE and self.version == 2:
+            print("Using EMBER dataset...")
             ember.create_vectorized_features(str(self.data_dir))
             ember.create_metadata(str(self.data_dir))
-        
-        print("Download complete!")
+            print("EMBER dataset ready!")
+        else:
+            print("EMBER not available. Synthetic data will be generated during loading.")
+            print("Data preparation complete!")
     
     def load_data(
         self,
-        subset: str = "train"
+        subset: str = "train",
+        n_samples: int = 50000
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Load EMBER dataset
-        
+        Load EMBER dataset or generate synthetic data
+
         Args:
             subset: 'train' or 'test'
-        
+            n_samples: Number of samples to generate (for synthetic data)
+
         Returns:
             X: Features array
             y: Labels array
         """
         print(f"Loading {subset} data...")
-        
-        X, y = ember.read_vectorized_features(
-            str(self.data_dir),
-            subset=subset
-        )
-        
-        print(f"Loaded {len(X)} samples with {X.shape[1]} features")
+
+        if EMBER_AVAILABLE:
+            try:
+                X, y = ember.read_vectorized_features(
+                    str(self.data_dir),
+                    subset=subset
+                )
+                print(f"Loaded EMBER {subset} data: {len(X)} samples with {X.shape[1]} features")
+                return X, y
+            except Exception as e:
+                print(f"Error loading EMBER data: {e}")
+                print("Falling back to synthetic data generation...")
+
+        # Generate synthetic data
+        print(f"Generating synthetic {subset} data...")
+        generator = MalwareDataGenerator(seed=42 if subset == "train" else 123)
+
+        if subset == "train":
+            # Generate larger training set
+            X, y = generator.generate_pe_features(n_samples, malware_ratio=0.5)
+        else:
+            # Generate smaller test set
+            X, y = generator.generate_pe_features(n_samples // 4, malware_ratio=0.5)
+
+        print(f"Generated synthetic {subset} data: {len(X)} samples with {X.shape[1]} features")
         return X, y
     
     def preprocess_features(
@@ -191,6 +224,99 @@ class EMBERPreprocessor:
         """Load scaler and metadata"""
         self.scaler = joblib.load(load_path)
         print(f"Preprocessor loaded from {load_path}")
+
+    def prepare_ember_dataset(
+        self,
+        data_dir: str = "data/ember",
+        output_dir: str = "data/processed",
+        test_size: float = 0.2,
+        augment: bool = True,
+        scaler_type: str = 'standard'
+    ) -> Dict[str, np.ndarray]:
+        """
+        Complete pipeline to prepare EMBER dataset
+        
+        Args:
+            data_dir: EMBER data directory
+            output_dir: Output directory for processed data
+            test_size: Validation split size
+            augment: Apply adversarial augmentation
+            scaler_type: Type of scaler to use
+        
+        Returns:
+            Dictionary with train/val/test splits
+        """
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize preprocessor
+        preprocessor = EMBERPreprocessor(data_dir)
+        
+        # Load training data
+        print("\n=== Loading Training Data ===")
+        X_train_raw, y_train = preprocessor.load_data("train")
+        
+        # Preprocess
+        X_train, y_train = preprocessor.preprocess_features(X_train_raw, y_train)
+        
+        # Split train/validation
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_train, y_train,
+            test_size=test_size,
+            stratify=y_train,
+            random_state=42
+        )
+        
+        print(f"Train: {len(X_train)}, Val: {len(X_val)}")
+        
+        # Adversarial augmentation
+        if augment:
+            print("\n=== Adversarial Augmentation ===")
+            augmenter = AdversarialAugmenter(noise_level=0.01)
+            
+            X_train, y_train = augmenter.add_gaussian_noise(
+                X_train, y_train, ratio=0.1
+            )
+            print(f"After augmentation: {len(X_train)} samples")
+        
+        # Fit scaler on training data
+        print("\n=== Fitting Scaler ===")
+        X_train = preprocessor.fit_transform(X_train, scaler_type=scaler_type)
+        
+        # Transform validation
+        X_val = preprocessor.transform(X_val)
+        
+        # Save preprocessor
+        preprocessor.save_preprocessor(output_dir / "preprocessor.pkl")
+        
+        # Load and preprocess test data
+        print("\n=== Loading Test Data ===")
+        X_test_raw, y_test = preprocessor.load_data("test")
+        X_test, y_test = preprocessor.preprocess_features(X_test_raw, y_test)
+        X_test = preprocessor.transform(X_test)
+        
+        # Save processed data
+        print("\n=== Saving Processed Data ===")
+        np.save(output_dir / "X_train.npy", X_train)
+        np.save(output_dir / "y_train.npy", y_train)
+        np.save(output_dir / "X_val.npy", X_val)
+        np.save(output_dir / "y_val.npy", y_val)
+        np.save(output_dir / "X_test.npy", X_test)
+        np.save(output_dir / "y_test.npy", y_test)
+        
+        print(f"\nData saved to {output_dir}")
+        print(f"Train: {X_train.shape}")
+        print(f"Val: {X_val.shape}")
+        print(f"Test: {X_test.shape}")
+        
+        return {
+            'X_train': X_train,
+            'y_train': y_train,
+            'X_val': X_val,
+            'y_val': y_val,
+            'X_test': X_test,
+            'y_test': y_test
+        }
 
 
 class AdversarialAugmenter:
@@ -368,100 +494,29 @@ class FeatureAnalyzer:
         return X[:, indices], indices
 
 
-def prepare_ember_dataset(
+def prepare_malware_dataset(
     data_dir: str = "data/ember",
     output_dir: str = "data/processed",
     test_size: float = 0.2,
-    augment: bool = True
+    augment: bool = True,
+    scaler_type: str = 'standard'
 ) -> Dict[str, np.ndarray]:
     """
-    Complete pipeline to prepare EMBER dataset
-    
-    Args:
-        data_dir: EMBER data directory
-        output_dir: Output directory for processed data
-        test_size: Validation split size
-        augment: Apply adversarial augmentation
-    
-    Returns:
-        Dictionary with train/val/test splits
+    Wrapper function for dataset preparation
     """
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Initialize preprocessor
     preprocessor = EMBERPreprocessor(data_dir)
-    
-    # Load training data
-    print("\n=== Loading Training Data ===")
-    X_train_raw, y_train = preprocessor.load_data("train")
-    
-    # Preprocess
-    X_train, y_train = preprocessor.preprocess_features(X_train_raw, y_train)
-    
-    # Split train/validation
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_train, y_train,
+    return preprocessor.prepare_ember_dataset(
+        data_dir=data_dir,
+        output_dir=output_dir,
         test_size=test_size,
-        stratify=y_train,
-        random_state=42
+        augment=augment,
+        scaler_type=scaler_type
     )
-    
-    print(f"Train: {len(X_train)}, Val: {len(X_val)}")
-    
-    # Adversarial augmentation
-    if augment:
-        print("\n=== Adversarial Augmentation ===")
-        augmenter = AdversarialAugmenter(noise_level=0.01)
-        
-        X_train, y_train = augmenter.add_gaussian_noise(
-            X_train, y_train, ratio=0.1
-        )
-        print(f"After augmentation: {len(X_train)} samples")
-    
-    # Fit scaler on training data
-    print("\n=== Fitting Scaler ===")
-    X_train = preprocessor.fit_transform(X_train, scaler_type='standard')
-    
-    # Transform validation
-    X_val = preprocessor.transform(X_val)
-    
-    # Save preprocessor
-    preprocessor.save_preprocessor(output_dir / "preprocessor.pkl")
-    
-    # Load and preprocess test data
-    print("\n=== Loading Test Data ===")
-    X_test_raw, y_test = preprocessor.load_data("test")
-    X_test, y_test = preprocessor.preprocess_features(X_test_raw, y_test)
-    X_test = preprocessor.transform(X_test)
-    
-    # Save processed data
-    print("\n=== Saving Processed Data ===")
-    np.save(output_dir / "X_train.npy", X_train)
-    np.save(output_dir / "y_train.npy", y_train)
-    np.save(output_dir / "X_val.npy", X_val)
-    np.save(output_dir / "y_val.npy", y_val)
-    np.save(output_dir / "X_test.npy", X_test)
-    np.save(output_dir / "y_test.npy", y_test)
-    
-    print(f"\nData saved to {output_dir}")
-    print(f"Train: {X_train.shape}")
-    print(f"Val: {X_val.shape}")
-    print(f"Test: {X_test.shape}")
-    
-    return {
-        'X_train': X_train,
-        'y_train': y_train,
-        'X_val': X_val,
-        'y_val': y_val,
-        'X_test': X_test,
-        'y_test': y_test
-    }
 
 
 if __name__ == "__main__":
     # Prepare dataset
-    data = prepare_ember_dataset(
+    data = prepare_malware_dataset(
         data_dir="data/ember",
         output_dir="data/processed",
         test_size=0.2,

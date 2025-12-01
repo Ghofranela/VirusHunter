@@ -1,495 +1,391 @@
 """
-Evaluation Module for Malware Detection
-Comprehensive metrics, robustness testing, and comparative analysis
+Model Evaluation Module
 """
-import torch
-import torch.nn as nn
 import numpy as np
-from typing import Dict, List, Tuple
-from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score,
-    roc_auc_score, confusion_matrix, classification_report,
-    roc_curve, precision_recall_curve, average_precision_score
-)
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+    confusion_matrix,
+    classification_report,
+    roc_curve,
+    precision_recall_curve
+)
 from pathlib import Path
-import json
-from tqdm import tqdm
 
 
-class ModelEvaluator:
+def calculate_metrics(y_true, y_pred, y_proba=None):
     """
-    Comprehensive model evaluation
-    """
-    def __init__(self, model: nn.Module, device: str = 'cuda'):
-        """
-        Initialize evaluator
-        
-        Args:
-            model: PyTorch model
-            device: Device to use
-        """
-        self.model = model.to(device)
-        self.device = device
-        self.model.eval()
-    
-    def predict(
-        self,
-        X: np.ndarray,
-        batch_size: int = 256
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Generate predictions
-        
-        Args:
-            X: Input features
-            batch_size: Batch size for inference
-        
-        Returns:
-            Probabilities, predictions
-        """
-        all_probs = []
-        
-        with torch.no_grad():
-            for i in range(0, len(X), batch_size):
-                batch = X[i:i+batch_size]
-                X_tensor = torch.FloatTensor(batch).to(self.device)
-                outputs = self.model(X_tensor)
-                probs = torch.sigmoid(outputs).cpu().numpy()
-                all_probs.append(probs)
-        
-        all_probs = np.concatenate(all_probs)
-        predictions = (all_probs > 0.5).astype(int)
-        
-        return all_probs, predictions
-    
-    def evaluate(
-        self,
-        X: np.ndarray,
-        y: np.ndarray,
-        threshold: float = 0.5
-    ) -> Dict:
-        """
-        Complete evaluation with all metrics
-        
-        Args:
-            X: Features
-            y: True labels
-            threshold: Classification threshold
-        
-        Returns:
-            Dictionary of metrics
-        """
-        print("Evaluating model...")
-        
-        # Get predictions
-        probs, preds = self.predict(X)
-        
-        # Adjust predictions based on threshold
-        preds = (probs > threshold).astype(int)
-        
-        # Calculate metrics
-        metrics = {
-            'accuracy': accuracy_score(y, preds),
-            'precision': precision_score(y, preds, zero_division=0),
-            'recall': recall_score(y, preds, zero_division=0),
-            'f1_score': f1_score(y, preds, zero_division=0),
-            'roc_auc': roc_auc_score(y, probs),
-            'average_precision': average_precision_score(y, probs),
-        }
-        
-        # Confusion matrix
-        cm = confusion_matrix(y, preds)
-        tn, fp, fn, tp = cm.ravel()
-        
-        metrics.update({
-            'true_negatives': int(tn),
-            'false_positives': int(fp),
-            'false_negatives': int(fn),
-            'true_positives': int(tp),
-            'specificity': tn / (tn + fp) if (tn + fp) > 0 else 0,
-            'false_positive_rate': fp / (fp + tn) if (fp + tn) > 0 else 0,
-            'false_negative_rate': fn / (fn + tp) if (fn + tp) > 0 else 0
-        })
-        
-        return metrics
-    
-    def print_metrics(self, metrics: Dict):
-        """Print metrics in formatted way"""
-        print("\n" + "="*60)
-        print("MODEL EVALUATION RESULTS")
-        print("="*60)
-        
-        print(f"\nOverall Performance:")
-        print(f"  Accuracy:           {metrics['accuracy']:.4f} ({metrics['accuracy']*100:.2f}%)")
-        print(f"  Precision:          {metrics['precision']:.4f}")
-        print(f"  Recall:             {metrics['recall']:.4f}")
-        print(f"  F1-Score:           {metrics['f1_score']:.4f}")
-        print(f"  ROC-AUC:            {metrics['roc_auc']:.4f}")
-        print(f"  Average Precision:  {metrics['average_precision']:.4f}")
-        
-        print(f"\nConfusion Matrix:")
-        print(f"  True Negatives:     {metrics['true_negatives']}")
-        print(f"  False Positives:    {metrics['false_positives']}")
-        print(f"  False Negatives:    {metrics['false_negatives']}")
-        print(f"  True Positives:     {metrics['true_positives']}")
-        
-        print(f"\nAdditional Metrics:")
-        print(f"  Specificity:        {metrics['specificity']:.4f}")
-        print(f"  False Positive Rate: {metrics['false_positive_rate']:.4f}")
-        print(f"  False Negative Rate: {metrics['false_negative_rate']:.4f}")
-        
-        print("="*60 + "\n")
-    
-    def plot_confusion_matrix(
-        self,
-        y_true: np.ndarray,
-        y_pred: np.ndarray,
-        save_path: str = None
-    ):
-        """Plot confusion matrix"""
-        cm = confusion_matrix(y_true, y_pred)
-        
-        fig, ax = plt.subplots(figsize=(10, 8))
-        
-        sns.heatmap(
-            cm,
-            annot=True,
-            fmt='d',
-            cmap='Blues',
-            xticklabels=['Benign', 'Malware'],
-            yticklabels=['Benign', 'Malware'],
-            cbar_kws={'label': 'Count'},
-            ax=ax
-        )
-        
-        ax.set_xlabel('Predicted Label', fontsize=12)
-        ax.set_ylabel('True Label', fontsize=12)
-        ax.set_title('Confusion Matrix', fontsize=14, fontweight='bold')
-        
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        else:
-            plt.show()
-        
-        plt.close()
-    
-    def plot_roc_curve(
-        self,
-        y_true: np.ndarray,
-        y_scores: np.ndarray,
-        save_path: str = None
-    ):
-        """Plot ROC curve"""
-        fpr, tpr, thresholds = roc_curve(y_true, y_scores)
-        roc_auc = roc_auc_score(y_true, y_scores)
-        
-        fig, ax = plt.subplots(figsize=(10, 8))
-        
-        ax.plot(fpr, tpr, linewidth=2, label=f'ROC (AUC = {roc_auc:.4f})')
-        ax.plot([0, 1], [0, 1], 'k--', linewidth=2, label='Random Classifier')
-        
-        ax.set_xlabel('False Positive Rate', fontsize=12)
-        ax.set_ylabel('True Positive Rate', fontsize=12)
-        ax.set_title('Receiver Operating Characteristic (ROC) Curve', 
-                     fontsize=14, fontweight='bold')
-        ax.legend(loc='lower right', fontsize=11)
-        ax.grid(alpha=0.3)
-        
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        else:
-            plt.show()
-        
-        plt.close()
-    
-    def plot_precision_recall_curve(
-        self,
-        y_true: np.ndarray,
-        y_scores: np.ndarray,
-        save_path: str = None
-    ):
-        """Plot Precision-Recall curve"""
-        precision, recall, thresholds = precision_recall_curve(y_true, y_scores)
-        avg_precision = average_precision_score(y_true, y_scores)
-        
-        fig, ax = plt.subplots(figsize=(10, 8))
-        
-        ax.plot(recall, precision, linewidth=2, 
-                label=f'PR Curve (AP = {avg_precision:.4f})')
-        
-        ax.set_xlabel('Recall', fontsize=12)
-        ax.set_ylabel('Precision', fontsize=12)
-        ax.set_title('Precision-Recall Curve', fontsize=14, fontweight='bold')
-        ax.legend(loc='lower left', fontsize=11)
-        ax.grid(alpha=0.3)
-        
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        else:
-            plt.show()
-        
-        plt.close()
-
-
-class RobustnessEvaluator:
-    """
-    Evaluate model robustness against adversarial attacks
-    """
-    def __init__(self, model: nn.Module, device: str = 'cuda'):
-        """
-        Initialize robustness evaluator
-        
-        Args:
-            model: PyTorch model
-            device: Device to use
-        """
-        self.model = model.to(device)
-        self.device = device
-        self.model.eval()
-    
-    def fgsm_attack(
-        self,
-        X: np.ndarray,
-        y: np.ndarray,
-        epsilon: float = 0.01
-    ) -> Tuple[np.ndarray, float]:
-        """
-        Fast Gradient Sign Method attack
-        
-        Args:
-            X: Input features
-            y: True labels
-            epsilon: Perturbation magnitude
-        
-        Returns:
-            Adversarial examples, success rate
-        """
-        X_tensor = torch.FloatTensor(X).to(self.device)
-        y_tensor = torch.FloatTensor(y).to(self.device)
-        
-        X_tensor.requires_grad = True
-        
-        # Forward pass
-        outputs = self.model(X_tensor)
-        loss = nn.BCEWithLogitsLoss()(outputs, y_tensor)
-        
-        # Backward pass
-        self.model.zero_grad()
-        loss.backward()
-        
-        # Generate adversarial examples
-        perturbation = epsilon * X_tensor.grad.sign()
-        X_adv = X_tensor + perturbation
-        X_adv = X_adv.detach().cpu().numpy()
-        
-        # Evaluate attack success
-        with torch.no_grad():
-            X_adv_tensor = torch.FloatTensor(X_adv).to(self.device)
-            outputs_adv = self.model(X_adv_tensor)
-            preds_adv = (torch.sigmoid(outputs_adv) > 0.5).float()
-            
-            # Success: prediction changed
-            success_rate = (preds_adv != y_tensor).float().mean().item()
-        
-        return X_adv, success_rate
-    
-    def evaluate_robustness(
-        self,
-        X_test: np.ndarray,
-        y_test: np.ndarray,
-        epsilons: List[float] = None
-    ) -> Dict:
-        """
-        Evaluate robustness across different epsilon values
-        
-        Args:
-            X_test: Test features
-            y_test: Test labels
-            epsilons: List of perturbation magnitudes
-        
-        Returns:
-            Robustness metrics
-        """
-        if epsilons is None:
-            epsilons = [0.001, 0.005, 0.01, 0.05, 0.1]
-        
-        print("Evaluating robustness against FGSM attacks...")
-        
-        results = {
-            'epsilons': epsilons,
-            'clean_accuracy': 0.0,
-            'adversarial_accuracy': [],
-            'attack_success_rates': []
-        }
-        
-        # Clean accuracy
-        with torch.no_grad():
-            X_tensor = torch.FloatTensor(X_test).to(self.device)
-            outputs = self.model(X_tensor)
-            preds = (torch.sigmoid(outputs) > 0.5).float().cpu().numpy()
-            results['clean_accuracy'] = accuracy_score(y_test, preds)
-        
-        # Test each epsilon
-        for epsilon in tqdm(epsilons, desc="Testing epsilon values"):
-            X_adv, success_rate = self.fgsm_attack(X_test, y_test, epsilon)
-            
-            # Adversarial accuracy
-            with torch.no_grad():
-                X_adv_tensor = torch.FloatTensor(X_adv).to(self.device)
-                outputs_adv = self.model(X_adv_tensor)
-                preds_adv = (torch.sigmoid(outputs_adv) > 0.5).float().cpu().numpy()
-                adv_acc = accuracy_score(y_test, preds_adv)
-            
-            results['adversarial_accuracy'].append(adv_acc)
-            results['attack_success_rates'].append(success_rate)
-        
-        return results
-    
-    def plot_robustness(self, results: Dict, save_path: str = None):
-        """Plot robustness results"""
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
-        
-        epsilons = results['epsilons']
-        
-        # Accuracy vs Epsilon
-        ax1.plot(epsilons, [results['clean_accuracy']] * len(epsilons), 
-                 'k--', label='Clean Accuracy', linewidth=2)
-        ax1.plot(epsilons, results['adversarial_accuracy'], 
-                 'r-o', label='Adversarial Accuracy', linewidth=2)
-        ax1.set_xlabel('Epsilon (Perturbation Magnitude)', fontsize=12)
-        ax1.set_ylabel('Accuracy', fontsize=12)
-        ax1.set_title('Model Robustness vs Perturbation', fontsize=14, fontweight='bold')
-        ax1.legend(fontsize=11)
-        ax1.grid(alpha=0.3)
-        
-        # Attack Success Rate
-        ax2.plot(epsilons, results['attack_success_rates'], 
-                 'b-o', linewidth=2)
-        ax2.set_xlabel('Epsilon (Perturbation Magnitude)', fontsize=12)
-        ax2.set_ylabel('Attack Success Rate', fontsize=12)
-        ax2.set_title('FGSM Attack Success Rate', fontsize=14, fontweight='bold')
-        ax2.grid(alpha=0.3)
-        
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        else:
-            plt.show()
-        
-        plt.close()
-
-
-def comprehensive_evaluation(
-    model: nn.Module,
-    X_test: np.ndarray,
-    y_test: np.ndarray,
-    device: str = 'cuda',
-    save_dir: str = "results"
-) -> Dict:
-    """
-    Complete evaluation pipeline
+    Calculate comprehensive metrics
     
     Args:
-        model: Trained model
-        X_test: Test features
-        y_test: Test labels
-        device: Device to use
-        save_dir: Directory to save results
+        y_true: True labels
+        y_pred: Predicted labels
+        y_proba: Predicted probabilities
     
     Returns:
-        Complete evaluation metrics
+        metrics: Dictionary of metrics
+    """
+    metrics = {
+        'accuracy': accuracy_score(y_true, y_pred),
+        'precision': precision_score(y_true, y_pred, zero_division=0),
+        'recall': recall_score(y_true, y_pred, zero_division=0),
+        'f1': f1_score(y_true, y_pred, zero_division=0),
+    }
+    
+    if y_proba is not None:
+        try:
+            metrics['auc'] = roc_auc_score(y_true, y_proba)
+        except:
+            metrics['auc'] = 0.0
+    else:
+        metrics['auc'] = 0.0
+    
+    # Confusion matrix values
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    metrics['true_negatives'] = int(tn)
+    metrics['false_positives'] = int(fp)
+    metrics['false_negatives'] = int(fn)
+    metrics['true_positives'] = int(tp)
+    
+    # Additional metrics
+    metrics['specificity'] = tn / (tn + fp) if (tn + fp) > 0 else 0
+    metrics['fpr'] = fp / (fp + tn) if (fp + tn) > 0 else 0
+    
+    return metrics
+
+
+def plot_confusion_matrix(y_true, y_pred, save_path=None, figsize=(8, 6)):
+    """
+    Plot confusion matrix
+    
+    Args:
+        y_true: True labels
+        y_pred: Predicted labels
+        save_path: Path to save figure
+        figsize: Figure size
+    """
+    cm = confusion_matrix(y_true, y_pred)
+    
+    plt.figure(figsize=figsize)
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt='d',
+        cmap='Blues',
+        xticklabels=['Benign', 'Malware'],
+        yticklabels=['Benign', 'Malware'],
+        cbar_kws={'label': 'Count'}
+    )
+    plt.title('Confusion Matrix', fontsize=14, fontweight='bold')
+    plt.ylabel('True Label', fontsize=12)
+    plt.xlabel('Predicted Label', fontsize=12)
+    plt.tight_layout()
+    
+    if save_path:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Confusion matrix saved to {save_path}")
+    
+    plt.show()
+    return cm
+
+
+def plot_roc_curve(y_true, y_proba, save_path=None, figsize=(8, 6)):
+    """
+    Plot ROC curve
+    
+    Args:
+        y_true: True labels
+        y_proba: Predicted probabilities
+        save_path: Path to save figure
+        figsize: Figure size
+    """
+    fpr, tpr, thresholds = roc_curve(y_true, y_proba)
+    auc = roc_auc_score(y_true, y_proba)
+    
+    plt.figure(figsize=figsize)
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC = {auc:.4f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='Random')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate', fontsize=12)
+    plt.ylabel('True Positive Rate', fontsize=12)
+    plt.title('Receiver Operating Characteristic (ROC) Curve', fontsize=14, fontweight='bold')
+    plt.legend(loc="lower right", fontsize=10)
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    
+    if save_path:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"ROC curve saved to {save_path}")
+    
+    plt.show()
+    return fpr, tpr, auc
+
+
+def plot_precision_recall_curve(y_true, y_proba, save_path=None, figsize=(8, 6)):
+    """
+    Plot Precision-Recall curve
+    
+    Args:
+        y_true: True labels
+        y_proba: Predicted probabilities
+        save_path: Path to save figure
+        figsize: Figure size
+    """
+    precision, recall, thresholds = precision_recall_curve(y_true, y_proba)
+    
+    plt.figure(figsize=figsize)
+    plt.plot(recall, precision, color='blue', lw=2)
+    plt.xlabel('Recall', fontsize=12)
+    plt.ylabel('Precision', fontsize=12)
+    plt.title('Precision-Recall Curve', fontsize=14, fontweight='bold')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    
+    if save_path:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Precision-Recall curve saved to {save_path}")
+    
+    plt.show()
+    return precision, recall
+
+
+def plot_training_history(history, save_path=None, figsize=(15, 5)):
+    """
+    Plot training history
+    
+    Args:
+        history: Training history dictionary
+        save_path: Path to save figure
+        figsize: Figure size
+    """
+    fig, axes = plt.subplots(1, 3, figsize=figsize)
+    
+    epochs = range(1, len(history['train_loss']) + 1)
+    
+    # Loss plot
+    axes[0].plot(epochs, history['train_loss'], 'b-', label='Training Loss', linewidth=2)
+    axes[0].plot(epochs, history['val_loss'], 'r-', label='Validation Loss', linewidth=2)
+    axes[0].set_title('Loss', fontsize=12, fontweight='bold')
+    axes[0].set_xlabel('Epoch')
+    axes[0].set_ylabel('Loss')
+    axes[0].legend()
+    axes[0].grid(alpha=0.3)
+    
+    # Accuracy plot
+    axes[1].plot(epochs, history['train_acc'], 'b-', label='Training Accuracy', linewidth=2)
+    axes[1].plot(epochs, history['val_acc'], 'r-', label='Validation Accuracy', linewidth=2)
+    axes[1].set_title('Accuracy', fontsize=12, fontweight='bold')
+    axes[1].set_xlabel('Epoch')
+    axes[1].set_ylabel('Accuracy (%)')
+    axes[1].legend()
+    axes[1].grid(alpha=0.3)
+    
+    # F1 & AUC plot
+    axes[2].plot(epochs, history['val_f1'], 'g-', label='F1 Score', linewidth=2)
+    axes[2].plot(epochs, history['val_auc'], 'm-', label='AUC', linewidth=2)
+    axes[2].set_title('F1 Score & AUC', fontsize=12, fontweight='bold')
+    axes[2].set_xlabel('Epoch')
+    axes[2].set_ylabel('Score')
+    axes[2].legend()
+    axes[2].grid(alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Training history saved to {save_path}")
+    
+    plt.show()
+
+
+def generate_classification_report(y_true, y_pred, save_path=None):
+    """
+    Generate and save classification report
+    
+    Args:
+        y_true: True labels
+        y_pred: Predicted labels
+        save_path: Path to save report
+    
+    Returns:
+        report: Classification report string
+    """
+    report = classification_report(
+        y_true,
+        y_pred,
+        target_names=['Benign', 'Malware'],
+        digits=4
+    )
+    
+    print("\n" + "="*60)
+    print("Classification Report")
+    print("="*60)
+    print(report)
+    print("="*60 + "\n")
+    
+    if save_path:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(save_path, 'w') as f:
+            f.write(report)
+        print(f"Classification report saved to {save_path}")
+    
+    return report
+
+
+def evaluate_threshold_impact(y_true, y_proba, thresholds=None):
+    """
+    Evaluate impact of different classification thresholds
+    
+    Args:
+        y_true: True labels
+        y_proba: Predicted probabilities
+        thresholds: List of thresholds to evaluate
+    
+    Returns:
+        results: DataFrame with threshold analysis
+    """
+    if thresholds is None:
+        thresholds = np.arange(0.1, 1.0, 0.1)
+    
+    results = []
+    
+    for threshold in thresholds:
+        y_pred = (y_proba >= threshold).astype(int)
+        metrics = calculate_metrics(y_true, y_pred, y_proba)
+        
+        results.append({
+            'threshold': threshold,
+            'accuracy': metrics['accuracy'],
+            'precision': metrics['precision'],
+            'recall': metrics['recall'],
+            'f1': metrics['f1'],
+            'fpr': metrics['fpr']
+        })
+    
+    import pandas as pd
+    df = pd.DataFrame(results)
+    
+    print("\n" + "="*60)
+    print("Threshold Analysis")
+    print("="*60)
+    print(df.to_string(index=False))
+    print("="*60 + "\n")
+    
+    return df
+
+
+def plot_feature_importance(feature_importance, top_k=20, save_path=None, figsize=(10, 8)):
+    """
+    Plot feature importance
+    
+    Args:
+        feature_importance: Array of feature importance scores
+        top_k: Number of top features to plot
+        save_path: Path to save figure
+        figsize: Figure size
+    """
+    # Get top k features
+    indices = np.argsort(feature_importance)[-top_k:]
+    values = feature_importance[indices]
+    
+    plt.figure(figsize=figsize)
+    plt.barh(range(top_k), values, color='steelblue')
+    plt.yticks(range(top_k), [f'Feature {i}' for i in indices])
+    plt.xlabel('Importance Score', fontsize=12)
+    plt.title(f'Top {top_k} Most Important Features', fontsize=14, fontweight='bold')
+    plt.grid(axis='x', alpha=0.3)
+    plt.tight_layout()
+    
+    if save_path:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Feature importance plot saved to {save_path}")
+    
+    plt.show()
+
+
+def create_evaluation_report(
+    y_true,
+    y_pred,
+    y_proba,
+    history=None,
+    save_dir='results/evaluations'
+):
+    """
+    Create comprehensive evaluation report with all plots
+    
+    Args:
+        y_true: True labels
+        y_pred: Predicted labels
+        y_proba: Predicted probabilities
+        history: Training history
+        save_dir: Directory to save results
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
     
-    # Standard evaluation
-    print("\n=== Standard Evaluation ===")
-    evaluator = ModelEvaluator(model, device)
-    metrics = evaluator.evaluate(X_test, y_test)
-    evaluator.print_metrics(metrics)
+    print(f"\n{'='*60}")
+    print("Creating Evaluation Report")
+    print(f"{'='*60}\n")
     
-    # Get predictions for plotting
-    probs, preds = evaluator.predict(X_test)
+    # Calculate metrics
+    metrics = calculate_metrics(y_true, y_pred, y_proba)
     
-    # Plot confusion matrix
-    evaluator.plot_confusion_matrix(
-        y_test, preds,
-        save_path=save_dir / "confusion_matrix.png"
-    )
+    # Generate plots
+    plot_confusion_matrix(y_true, y_pred, save_path=save_dir / 'confusion_matrix.png')
+    plot_roc_curve(y_true, y_proba, save_path=save_dir / 'roc_curve.png')
+    plot_precision_recall_curve(y_true, y_proba, save_path=save_dir / 'pr_curve.png')
     
-    # Plot ROC curve
-    evaluator.plot_roc_curve(
-        y_test, probs,
-        save_path=save_dir / "roc_curve.png"
-    )
+    if history:
+        plot_training_history(history, save_path=save_dir / 'training_history.png')
     
-    # Plot PR curve
-    evaluator.plot_precision_recall_curve(
-        y_test, probs,
-        save_path=save_dir / "precision_recall_curve.png"
-    )
+    # Generate classification report
+    generate_classification_report(y_true, y_pred, save_path=save_dir / 'classification_report.txt')
     
-    # Robustness evaluation
-    print("\n=== Robustness Evaluation ===")
-    robustness_evaluator = RobustnessEvaluator(model, device)
+    # Threshold analysis
+    threshold_df = evaluate_threshold_impact(y_true, y_proba)
+    threshold_df.to_csv(save_dir / 'threshold_analysis.csv', index=False)
     
-    # Sample subset for robustness testing
-    n_samples = min(1000, len(X_test))
-    indices = np.random.choice(len(X_test), n_samples, replace=False)
+    # Save metrics
+    import json
+    with open(save_dir / 'metrics.json', 'w') as f:
+        json.dump(metrics, f, indent=2)
     
-    robustness_results = robustness_evaluator.evaluate_robustness(
-        X_test[indices],
-        y_test[indices]
-    )
+    print(f"\n{'='*60}")
+    print(f"Evaluation Report Complete!")
+    print(f"Results saved to: {save_dir}")
+    print(f"{'='*60}\n")
     
-    # Plot robustness
-    robustness_evaluator.plot_robustness(
-        robustness_results,
-        save_path=save_dir / "robustness_analysis.png"
-    )
-    
-    # Combine results
-    complete_results = {
-        'standard_metrics': metrics,
-        'robustness': robustness_results
-    }
-    
-    # Save results
-    with open(save_dir / "evaluation_results.json", 'w') as f:
-        json.dump(complete_results, f, indent=2)
-    
-    print(f"\nAll results saved to {save_dir}")
-    
-    return complete_results
+    return metrics
 
 
 if __name__ == "__main__":
-    # Test evaluation
-    from model import MalwareDetector
+    print("Testing evaluation module...")
     
-    print("Testing Evaluation Module...")
+    # Create dummy data
+    np.random.seed(42)
+    y_true = np.random.randint(0, 2, 1000)
+    y_proba = np.random.random(1000)
+    y_pred = (y_proba > 0.5).astype(int)
     
-    # Create dummy model and data
-    model = MalwareDetector(input_size=2381)
-    model.eval()
+    # Test metrics
+    metrics = calculate_metrics(y_true, y_pred, y_proba)
+    print("Metrics:", metrics)
     
-    X_test = np.random.randn(1000, 2381)
-    y_test = np.random.randint(0, 2, 1000)
+    # Test plots
+    plot_confusion_matrix(y_true, y_pred)
+    plot_roc_curve(y_true, y_proba)
     
-    # Evaluate
-    results = comprehensive_evaluation(
-        model, X_test, y_test,
-        device='cpu',
-        save_dir='test_results'
-    )
-    
-    print("\nEvaluation module tested successfully!")
+    print("\n✓ Evaluation module tested successfully!")
