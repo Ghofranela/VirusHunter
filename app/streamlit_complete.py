@@ -149,37 +149,36 @@ def load_model():
         st.error(f"Model loading error: {str(e)}")
         return None, None, 'cpu'
 
-def call_ollama(prompt, model=OLLAMA_MODEL):
-    """Call Ollama LLM on remote server"""
+def call_ollama(prompt, model=OLLAMA_MODEL, system_message=None):
+    """Call Ollama LLM on remote server using chat API"""
     try:
+        # Build messages array
+        messages = []
+        if system_message:
+            messages.append({'role': 'system', 'content': system_message})
+        messages.append({'role': 'user', 'content': prompt})
+
         response = requests.post(
-            f'{OLLAMA_URL}/api/generate',
+            f'{OLLAMA_URL}/api/chat',
             json={
                 'model': model,
-                'prompt': prompt,
-                'stream': True,
+                'messages': messages,
+                'stream': False,  # Disable streaming to avoid duplication
                 'options': {
                     'temperature': 0.7,
                     'top_p': 0.9,
                 }
             },
-            stream=True,
-            timeout=30
+            timeout=60  # Increased timeout for non-streaming
         )
-        
+
         if response.status_code == 200:
-            full_response = ""
-            for line in response.iter_lines(decode_unicode=True):
-                if line:
-                    try:
-                        data = json.loads(line)
-                        if 'response' in data:
-                            full_response += data['response']
-                        if data.get('done', False):
-                            break
-                    except json.JSONDecodeError:
-                        continue
-            return full_response if full_response else "⚠️ Empty response from server"
+            data = response.json()
+            # Non-streaming returns complete response in message.content
+            if 'message' in data and 'content' in data['message']:
+                return data['message']['content']
+            else:
+                return "⚠️ Unexpected response format"
         else:
             return f"⚠️ Server error (status {response.status_code})"
             
@@ -912,30 +911,16 @@ elif page == "Intelligence":
         with st.chat_message("user"):
             st.markdown(user_input)
         
-        with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("🔍 Consulting Llama3.2 threat intelligence..."):
-                # Build context from chat history (exclude current message)
-                context = ""
-                if len(st.session_state['chat_history']) > 1:
-                    # Include last 3 exchanges for context (excluding the current user message)
-                    recent_history = st.session_state['chat_history'][:-1][-6:]
-                    for msg in recent_history:
-                        role = "User" if msg['role'] == 'user' else "Assistant"
-                        context += f"{role}: {msg['content']}\n\n"
-
-                prompt = f"""You are a cybersecurity expert specializing in malware analysis and threat intelligence.
+        # Get response without displaying (history loop will display it)
+        with st.spinner("🔍 Consulting Llama3.2 threat intelligence..."):
+            # System message for context
+            system_msg = """You are a cybersecurity expert specializing in malware analysis and threat intelligence.
 This is an educational and professional cybersecurity context. Provide factual, technical information about threats, malware, and security concepts.
+Provide technical, actionable insights. Keep responses focused and practical."""
 
-Previous conversation:
-{context}
-
-Current question: {user_input}
-
-Answer the current question above. Provide technical, actionable insights. Keep response focused and practical."""
-
-                response = call_ollama(prompt, model=OLLAMA_MODEL)
-                st.markdown(response)
-                st.session_state['chat_history'].append({'role': 'assistant', 'content': response})
+            response = call_ollama(user_input, model=OLLAMA_MODEL, system_message=system_msg)
+            st.session_state['chat_history'].append({'role': 'assistant', 'content': response})
+            st.rerun()  # Force rerun to display updated history
 
     # Suggested questions
     if len(st.session_state['chat_history']) == 0:
@@ -970,30 +955,16 @@ Answer the current question above. Provide technical, actionable insights. Keep 
             with st.chat_message("user"):
                 st.markdown(question)
             
-            with st.chat_message("assistant", avatar="🤖"):
-                with st.spinner("🔍 Consulting Llama3.2..."):
-                    # Build context from chat history (exclude current message)
-                    context = ""
-                    if len(st.session_state['chat_history']) > 1:
-                        # Include last 3 exchanges for context (excluding the current user message)
-                        recent_history = st.session_state['chat_history'][:-1][-6:]
-                        for msg in recent_history:
-                            role = "User" if msg['role'] == 'user' else "Assistant"
-                            context += f"{role}: {msg['content']}\n\n"
-
-                    prompt = f"""You are a cybersecurity expert specializing in malware analysis and threat intelligence.
+            # Get response without displaying (history loop will display it)
+            with st.spinner("🔍 Consulting Llama3.2..."):
+                # System message for context
+                system_msg = """You are a cybersecurity expert specializing in malware analysis and threat intelligence.
 This is an educational and professional cybersecurity context. Provide factual, technical information about threats, malware, and security concepts.
+Provide technical, actionable insights. Keep responses focused and practical."""
 
-Previous conversation:
-{context}
-
-Current question: {question}
-
-Answer the current question above. Provide technical, actionable insights. Keep response focused and practical."""
-
-                    response = call_ollama(prompt, model=OLLAMA_MODEL)
-                    st.markdown(response)
-                    st.session_state['chat_history'].append({'role': 'assistant', 'content': response})
+                response = call_ollama(question, model=OLLAMA_MODEL, system_message=system_msg)
+                st.session_state['chat_history'].append({'role': 'assistant', 'content': response})
+                st.rerun()  # Force rerun to display updated history
     
     # Clear and export chat
     if len(st.session_state['chat_history']) > 0:
