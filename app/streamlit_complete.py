@@ -104,7 +104,7 @@ html, body, [data-testid="stAppViewContainer"] {
 # ====================================================================
 
 OLLAMA_URL = "http://51.254.200.139:11434"
-OLLAMA_MODEL = "llama3:8b"
+OLLAMA_MODEL = "llama3.2:1b"
 
 # ====================================================================
 # UTILITY FUNCTIONS
@@ -150,7 +150,7 @@ def load_model():
         return None, None, 'cpu'
 
 def call_ollama(prompt, model=OLLAMA_MODEL):
-    """Call Ollama LLM with llama3:8b on remote server"""
+    """Call Ollama LLM on remote server"""
     try:
         response = requests.post(
             f'{OLLAMA_URL}/api/generate',
@@ -752,7 +752,7 @@ Provide:
 
 Keep response concise and technical. Use bullet points."""
                     
-                    ai_response = call_ollama(prompt, model="llama3:8b")
+                    ai_response = call_ollama(prompt, model=OLLAMA_MODEL)
                     
                     # Display AI response
                     ai_placeholder.markdown(f"""
@@ -874,7 +874,7 @@ elif page == "Intelligence":
 
 Provide technical, actionable insights. Reference MITRE ATT&CK tactics/techniques when relevant. Use bullet points for clarity. Keep response focused and practical."""
                 
-                response = call_ollama(prompt, model="llama3:8b")
+                response = call_ollama(prompt, model=OLLAMA_MODEL)
                 st.markdown(response)
                 st.session_state['chat_history'].append({'role': 'assistant', 'content': response})
     
@@ -919,7 +919,7 @@ Provide technical, actionable insights. Reference MITRE ATT&CK tactics/technique
 
 Provide technical, actionable insights. Reference MITRE ATT&CK tactics/techniques when relevant. Use bullet points for clarity. Keep response focused and practical."""
                     
-                    response = call_ollama(prompt, model="llama3:8b")
+                    response = call_ollama(prompt, model=OLLAMA_MODEL)
                     st.markdown(response)
                     st.session_state['chat_history'].append({'role': 'assistant', 'content': response})
     

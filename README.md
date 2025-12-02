@@ -1,6 +1,6 @@
 # VirusHunter 🛡️
 
-Système intelligent de détection de malwares combinant Deep Learning (PyTorch) et IA conversationnelle (Llama3:8b).
+Système intelligent de détection de malwares combinant Deep Learning (PyTorch) et IA conversationnelle (Llama3.2).
 
 ## 🚀 Lancement rapide
 
@@ -50,7 +50,7 @@ VirusHunter/
 ## ✨ Fonctionnalités
 
 - **Détection de malwares** : Classification binaire avec score de risque
-- **Chatbot IA** : Analyse conversationnelle via Llama3:8b
+- **Chatbot IA** : Analyse conversationnelle via Llama3.2
 - **Explicabilité** : SHAP, LIME, Integrated Gradients
 - **Interface web** : Upload, analyse, historique, rapports
 - **Formats supportés** : `.npy`, `.exe`, `.dll`, `.pdf`, `.docx`, `.zip`, `.py`, `.js`
@@ -80,7 +80,7 @@ git push -u origin feature/ma-feature
 
 - **PyTorch 2.0+** : Deep Learning
 - **Streamlit** : Interface web
-- **Ollama + Llama3:8b** : LLM distant
+- **Ollama + Llama3.2** : LLM distant
 - **SHAP/LIME** : Explicabilité
 - **EMBER** : Dataset (2,381 features)
 
@@ -90,9 +90,9 @@ Les données d'entraînement EMBER se trouvent sur le PC du collègue dans le do
 
 ## 🔧 Configuration
 
-L'URL Ollama est configurée dans [docker-compose.yml](docker/docker-compose.yml) :
+L'URL Ollama est configurée dans [docker-compose.yml](docker-compose.yml) :
 - **Serveur** : `http://51.254.200.139:11434`
-- **Modèle** : `llama3:8b`
+- **Modèle** : `llama3.2:1b` (optimisé pour 7.6 GB RAM)
 
 ## 📄 Licence
 
