@@ -12,7 +12,7 @@ from datetime import datetime
 import json
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
     from src.model import MalwareDetector
@@ -868,16 +868,25 @@ elif page == "Intelligence":
         
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("🔍 Consulting Llama3.2 threat intelligence..."):
-                prompt = f"""You are a cybersecurity expert specializing in malware analysis and threat intelligence. Answer this question:
+                # Build context from chat history
+                context = ""
+                if len(st.session_state['chat_history']) > 1:
+                    # Include last 3 exchanges for context
+                    recent_history = st.session_state['chat_history'][-6:]
+                    for msg in recent_history:
+                        role = "User" if msg['role'] == 'user' else "Assistant"
+                        context += f"{role}: {msg['content']}\n\n"
 
-{user_input}
+                prompt = f"""You are a cybersecurity expert specializing in malware analysis and threat intelligence.
 
-Provide technical, actionable insights. Reference MITRE ATT&CK tactics/techniques when relevant. Use bullet points for clarity. Keep response focused and practical."""
-                
+{context}User: {user_input}
+
+Provide technical, actionable insights. Keep response focused and practical."""
+
                 response = call_ollama(prompt, model=OLLAMA_MODEL)
                 st.markdown(response)
                 st.session_state['chat_history'].append({'role': 'assistant', 'content': response})
-    
+
     # Suggested questions
     if len(st.session_state['chat_history']) == 0:
         st.markdown("### 💡 Suggested Questions")
@@ -913,12 +922,21 @@ Provide technical, actionable insights. Reference MITRE ATT&CK tactics/technique
             
             with st.chat_message("assistant", avatar="🤖"):
                 with st.spinner("🔍 Consulting Llama3.2..."):
-                    prompt = f"""You are a cybersecurity expert specializing in malware analysis and threat intelligence. Answer this question:
+                    # Build context from chat history
+                    context = ""
+                    if len(st.session_state['chat_history']) > 1:
+                        # Include last 3 exchanges for context
+                        recent_history = st.session_state['chat_history'][-6:]
+                        for msg in recent_history:
+                            role = "User" if msg['role'] == 'user' else "Assistant"
+                            context += f"{role}: {msg['content']}\n\n"
 
-{question}
+                    prompt = f"""You are a cybersecurity expert specializing in malware analysis and threat intelligence.
 
-Provide technical, actionable insights. Reference MITRE ATT&CK tactics/techniques when relevant. Use bullet points for clarity. Keep response focused and practical."""
-                    
+{context}User: {question}
+
+Provide technical, actionable insights. Keep response focused and practical."""
+
                     response = call_ollama(prompt, model=OLLAMA_MODEL)
                     st.markdown(response)
                     st.session_state['chat_history'].append({'role': 'assistant', 'content': response})
