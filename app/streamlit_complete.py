@@ -239,7 +239,7 @@ def extract_features_from_file(file_obj, file_type):
         file_size = len(file_bytes)
 
         # Initialize feature vector (2381 features to match EMBER)
-        features = np.zeros(2381)
+        features = np.zeros(2381, dtype=np.float64)
 
         # Basic file metadata features (first 50 features)
         features[0] = file_size
@@ -249,21 +249,25 @@ def extract_features_from_file(file_obj, file_type):
 
         # Entropy calculation (feature 4)
         if file_size > 0:
-            byte_counts = np.bincount(file_bytes, minlength=256)
+            byte_array = np.frombuffer(file_bytes, dtype=np.uint8)
+            byte_counts = np.bincount(byte_array, minlength=256)
             probabilities = byte_counts / file_size
             entropy = -np.sum(probabilities * np.log2(probabilities + 1e-10))
             features[4] = entropy
 
         # Byte frequency features (features 50-305: 256 byte frequencies)
         if file_size > 0:
-            byte_freq = np.bincount(file_bytes, minlength=256) / file_size
-            features[50:306] = byte_freq
+            byte_array = np.frombuffer(file_bytes, dtype=np.uint8)
+            byte_freq = np.bincount(byte_array, minlength=256).astype(np.float64) / file_size
+            features[50:306] = byte_freq[:256]  # Ensure exactly 256 values
 
         # N-gram features (bigrams, features 306-1000)
         if file_size > 1:
+            byte_array = np.frombuffer(file_bytes, dtype=np.uint8)
             bigrams = {}
-            for i in range(min(file_size - 1, 10000)):
-                bigram = (file_bytes[i], file_bytes[i+1])
+            sample_size = min(file_size - 1, 10000)
+            for i in range(sample_size):
+                bigram = (int(byte_array[i]), int(byte_array[i+1]))
                 bigrams[bigram] = bigrams.get(bigram, 0) + 1
 
             top_bigrams = sorted(bigrams.items(), key=lambda x: x[1], reverse=True)[:694]
@@ -306,17 +310,23 @@ def extract_features_from_file(file_obj, file_type):
 
         # Statistical features (features 1881-1920)
         if file_size > 0:
-            byte_array = np.array(list(file_bytes))
-            features[1881] = np.mean(byte_array)
-            features[1882] = np.std(byte_array)
-            features[1883] = np.median(byte_array)
-            features[1884] = np.min(byte_array)
-            features[1885] = np.max(byte_array)
+            try:
+                # Convert bytes to numpy array efficiently
+                byte_array = np.frombuffer(file_bytes, dtype=np.uint8)
+                features[1881] = np.mean(byte_array)
+                features[1882] = np.std(byte_array)
+                features[1883] = np.median(byte_array)
+                features[1884] = np.min(byte_array)
+                features[1885] = np.max(byte_array)
+            except Exception as stat_error:
+                # If statistical features fail, continue with zeros (already initialized)
+                pass
 
         return features.reshape(1, -1)
 
     except Exception as e:
-        st.error(f"Feature extraction error: {str(e)}")
+        st.error(f"❌ Feature extraction error: {str(e)}")
+        st.info(f"📊 File size: {len(file_obj.read() if hasattr(file_obj, 'read') else b'')} bytes")
         return None
 
 def save_to_history(filename, prob, risk_level, ai_analysis="", features=None):
@@ -511,39 +521,72 @@ elif page == "Analyze":
     
     with tab1:
         st.markdown("### Upload File for Analysis")
-        
-        file_type = st.radio(
-            "Select file type:",
-            ["Feature Vector (.npy)", "Executable (.exe, .dll, .bin)", "Document (.pdf, .docx)", "Archive (.zip, .rar)", "Script (.py, .js, .ps1)"],
-            horizontal=True
-        )
-        
-        # Determine file types based on selection
-        if "Feature Vector" in file_type:
-            accepted_types = ['npy']
-            help_text = "Preprocessed feature vectors in numpy format (2381 features expected)"
-        elif "Executable" in file_type:
-            accepted_types = ['exe', 'dll', 'bin', 'so']
-            help_text = "Binary executable files - features will be auto-extracted"
-        elif "Document" in file_type:
-            accepted_types = ['pdf', 'docx', 'doc', 'rtf']
-            help_text = "Documents - features will be auto-extracted"
-        elif "Archive" in file_type:
-            accepted_types = ['zip', 'rar', '7z', 'tar', 'gz']
-            help_text = "Compressed archives - features will be auto-extracted"
-        else:  # Script
-            accepted_types = ['py', 'js', 'ps1', 'sh', 'bat', 'vbs']
-            help_text = "Script files - features will be auto-extracted"
-        
+        st.caption("📁 Upload any suspicious file - type will be detected automatically")
+
+        # Unified file uploader accepting all supported types
+        accepted_types = [
+            'npy',  # Feature vectors
+            'exe', 'dll', 'bin', 'so', 'elf',  # Executables
+            'pdf', 'docx', 'doc', 'rtf',  # Documents
+            'zip', 'rar', '7z', 'tar', 'gz',  # Archives
+            'py', 'js', 'ps1', 'sh', 'bat', 'vbs', 'php', 'rb'  # Scripts
+        ]
+
         uploaded_file = st.file_uploader(
-            f"Select file ({', '.join(['.' + t for t in accepted_types])})",
+            "Drop your file here or click to browse",
             type=accepted_types,
-            help=help_text
+            help="Supports executables, documents, scripts, archives, and pre-extracted feature vectors (.npy)"
         )
+
+        # Display supported file types in an expander
+        with st.expander("📋 Supported File Types"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown("""
+                **💾 Executables**
+                - .exe, .dll, .bin
+                - .so, .elf
+                """)
+            with col2:
+                st.markdown("""
+                **📄 Documents**
+                - .pdf, .docx, .doc
+                - .rtf
+                """)
+            with col3:
+                st.markdown("""
+                **📜 Scripts & Others**
+                - .py, .js, .ps1, .sh
+                - .bat, .vbs, .php, .rb
+                - .zip, .rar, .7z
+                - .npy (feature vectors)
+                """)
         
         if uploaded_file:
             file_extension = uploaded_file.name.split('.')[-1].lower()
-            
+
+            # Auto-detect file type and display info
+            if file_extension == 'npy':
+                file_type_icon = "📊"
+                file_type_name = "Feature Vector"
+            elif file_extension in ['exe', 'dll', 'bin', 'so', 'elf']:
+                file_type_icon = "💾"
+                file_type_name = "Executable"
+            elif file_extension in ['pdf', 'docx', 'doc', 'rtf']:
+                file_type_icon = "📄"
+                file_type_name = "Document"
+            elif file_extension in ['zip', 'rar', '7z', 'tar', 'gz']:
+                file_type_icon = "📦"
+                file_type_name = "Archive"
+            elif file_extension in ['py', 'js', 'ps1', 'sh', 'bat', 'vbs', 'php', 'rb']:
+                file_type_icon = "📜"
+                file_type_name = "Script"
+            else:
+                file_type_icon = "❓"
+                file_type_name = "Unknown"
+
+            st.info(f"{file_type_icon} **Detected type**: {file_type_name} (`.{file_extension}`)")
+
             # Handle .npy files
             if file_extension == 'npy':
                 try:
@@ -736,7 +779,10 @@ elif page == "Analyze":
                 ai_placeholder = st.empty()
                 
                 with st.spinner("🧠 Consulting Llama3.2 AI..."):
-                    prompt = f"""You are a cybersecurity expert. Analyze this malware detection result:
+                    prompt = f"""You are a cybersecurity expert specializing in malware analysis.
+This is an educational and professional cybersecurity context. Provide factual, technical information about threats and malware.
+
+Analyze this malware detection result:
 
 File: {filename}
 Malware Probability: {prob:.1%}
