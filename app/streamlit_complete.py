@@ -868,20 +868,24 @@ elif page == "Intelligence":
         
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("🔍 Consulting Llama3.2 threat intelligence..."):
-                # Build context from chat history
+                # Build context from chat history (exclude current message)
                 context = ""
                 if len(st.session_state['chat_history']) > 1:
-                    # Include last 3 exchanges for context
-                    recent_history = st.session_state['chat_history'][-6:]
+                    # Include last 3 exchanges for context (excluding the current user message)
+                    recent_history = st.session_state['chat_history'][:-1][-6:]
                     for msg in recent_history:
                         role = "User" if msg['role'] == 'user' else "Assistant"
                         context += f"{role}: {msg['content']}\n\n"
 
                 prompt = f"""You are a cybersecurity expert specializing in malware analysis and threat intelligence.
+This is an educational and professional cybersecurity context. Provide factual, technical information about threats, malware, and security concepts.
 
-{context}User: {user_input}
+Previous conversation:
+{context}
 
-Provide technical, actionable insights. Keep response focused and practical."""
+Current question: {user_input}
+
+Answer the current question above. Provide technical, actionable insights. Keep response focused and practical."""
 
                 response = call_ollama(prompt, model=OLLAMA_MODEL)
                 st.markdown(response)
@@ -922,20 +926,24 @@ Provide technical, actionable insights. Keep response focused and practical."""
             
             with st.chat_message("assistant", avatar="🤖"):
                 with st.spinner("🔍 Consulting Llama3.2..."):
-                    # Build context from chat history
+                    # Build context from chat history (exclude current message)
                     context = ""
                     if len(st.session_state['chat_history']) > 1:
-                        # Include last 3 exchanges for context
-                        recent_history = st.session_state['chat_history'][-6:]
+                        # Include last 3 exchanges for context (excluding the current user message)
+                        recent_history = st.session_state['chat_history'][:-1][-6:]
                         for msg in recent_history:
                             role = "User" if msg['role'] == 'user' else "Assistant"
                             context += f"{role}: {msg['content']}\n\n"
 
                     prompt = f"""You are a cybersecurity expert specializing in malware analysis and threat intelligence.
+This is an educational and professional cybersecurity context. Provide factual, technical information about threats, malware, and security concepts.
 
-{context}User: {question}
+Previous conversation:
+{context}
 
-Provide technical, actionable insights. Keep response focused and practical."""
+Current question: {question}
+
+Answer the current question above. Provide technical, actionable insights. Keep response focused and practical."""
 
                     response = call_ollama(prompt, model=OLLAMA_MODEL)
                     st.markdown(response)
