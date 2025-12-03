@@ -11,6 +11,7 @@ from pathlib import Path
 from datetime import datetime
 import json
 import pandas as pd
+import time
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -419,7 +420,7 @@ with st.sidebar:
     
     page = st.radio(
         "Navigation",
-        ["Overview", "Analyze", "Intelligence", "History"],
+        ["Overview", "Analyze", "Training", "Intelligence", "History"],
         label_visibility="collapsed"
     )
     
@@ -873,6 +874,251 @@ Keep response concise and technical. Use bullet points."""
                         mime="text/csv",
                         use_container_width=True
                     )
+
+# ====================================================================
+# PAGE: TRAINING
+# ====================================================================
+
+elif page == "Training":
+    st.title("🎓 Model Training")
+    st.markdown("Train and evaluate malware detection models on EMBER dataset")
+
+    # Check for training data
+    data_status_col1, data_status_col2 = st.columns([2, 1])
+
+    with data_status_col1:
+        st.markdown("### 📊 Dataset Status")
+
+        # Check what data is available
+        processed_exists = Path("data/processed").exists()
+        ember_exists = Path("data/raw/ember2018").exists()
+
+        if processed_exists:
+            try:
+                X_train = np.load("data/processed/X_train.npy", mmap_mode='r')
+                y_train = np.load("data/processed/y_train.npy", mmap_mode='r')
+                n_samples = len(y_train)
+                n_malware = np.sum(y_train == 1)
+                n_benign = np.sum(y_train == 0)
+
+                st.success(f"✅ Processed data loaded: {n_samples:,} samples")
+                st.info(f"📈 Distribution: {n_malware:,} malware ({n_malware/n_samples:.1%}), {n_benign:,} benign ({n_benign/n_samples:.1%})")
+            except Exception as e:
+                st.warning(f"⚠️ Processed data exists but couldn't load: {e}")
+                processed_exists = False
+
+        if ember_exists and not processed_exists:
+            st.info("📁 Raw EMBER data detected - will be processed before training")
+
+        if not processed_exists and not ember_exists:
+            st.warning("⚠️ No training data found - synthetic data will be generated")
+
+    with data_status_col2:
+        if st.button("🔄 Regenerate Synthetic Data", use_container_width=True):
+            with st.spinner("Generating synthetic data..."):
+                import subprocess
+                result = subprocess.run(
+                    ["python3", "scripts/generate_synthetic_data.py", "--samples", "10000"],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    st.success("✅ Synthetic data generated!")
+                    st.rerun()
+                else:
+                    st.error(f"❌ Error: {result.stderr}")
+
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+
+    # Training Configuration
+    st.markdown("### ⚙️ Training Configuration")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        model_type = st.selectbox(
+            "Model Architecture",
+            ["DNN", "CNN", "LSTM", "Ensemble"],
+            help="Deep Learning model architecture"
+        )
+
+    with col2:
+        epochs = st.number_input("Epochs", min_value=1, max_value=100, value=10)
+
+    with col3:
+        batch_size = st.selectbox("Batch Size", [32, 64, 128, 256], index=2)
+
+    learning_rate = st.slider("Learning Rate", 0.0001, 0.01, 0.001, format="%.4f")
+
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+
+    # Training Button and Progress Tracking
+    progress_file = Path("training_progress.json")
+
+    # Check if training is in progress
+    training_in_progress = False
+    if progress_file.exists():
+        try:
+            with open(progress_file, 'r') as f:
+                progress_data = json.load(f)
+                training_in_progress = progress_data.get("status") in ["loading_data", "preparing", "training"]
+        except:
+            pass
+
+    if training_in_progress:
+        st.warning("⚠️ Training is already in progress. Wait for it to complete or refresh the page.")
+    else:
+        if st.button("🚀 START TRAINING", type="primary", use_container_width=True):
+            # Launch training in background
+            import subprocess
+            import threading
+
+            def run_training():
+                subprocess.run([
+                    "python3", "scripts/train_model.py",
+                    "--model-type", model_type,
+                    "--epochs", str(epochs),
+                    "--batch-size", str(batch_size),
+                    "--learning-rate", str(learning_rate)
+                ])
+
+            # Start training in background thread
+            training_thread = threading.Thread(target=run_training, daemon=True)
+            training_thread.start()
+
+            st.success("🎓 Training started! Monitoring progress...")
+            time.sleep(1)  # Give it a moment to start
+            st.rerun()
+
+    # Display training progress if available
+    if progress_file.exists():
+        try:
+            with open(progress_file, 'r') as f:
+                progress_data = json.load(f)
+
+            status = progress_data.get("status", "unknown")
+
+            if status == "training":
+                st.markdown("### 📊 Training Progress")
+
+                # Progress bar
+                epoch = progress_data.get("epoch", 0)
+                total_epochs = progress_data.get("total_epochs", epochs)
+                progress_percent = epoch / total_epochs
+                st.progress(progress_percent, text=f"Epoch {epoch}/{total_epochs}")
+
+                # Metrics
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Train Loss", f"{progress_data.get('train_loss', 0):.4f}")
+                with col2:
+                    st.metric("Train Accuracy", f"{progress_data.get('train_acc', 0):.4f}")
+                with col3:
+                    st.metric("Val Loss", f"{progress_data.get('val_loss', 0):.4f}")
+                with col4:
+                    st.metric("Val Accuracy", f"{progress_data.get('val_acc', 0):.4f}")
+
+                st.info(f"🔄 {progress_data.get('message', 'Training...')}")
+
+                # Auto-refresh every 2 seconds
+                time.sleep(2)
+                st.rerun()
+
+            elif status == "completed":
+                st.success("✅ Training completed!")
+
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Test Accuracy", f"{progress_data.get('test_acc', 0):.4f}")
+                with col2:
+                    st.metric("Precision", f"{progress_data.get('test_precision', 0):.4f}")
+                with col3:
+                    st.metric("Recall", f"{progress_data.get('test_recall', 0):.4f}")
+                with col4:
+                    st.metric("F1 Score", f"{progress_data.get('test_f1', 0):.4f}")
+
+                st.info(f"🎉 {progress_data.get('message', 'Training completed!')}")
+
+                # Display final epoch metrics
+                st.markdown("#### 📈 Final Training Metrics")
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.markdown("**Training Set**")
+                    st.write(f"- Loss: {progress_data.get('train_loss', 0):.4f}")
+                    st.write(f"- Accuracy: {progress_data.get('train_acc', 0):.4f}")
+
+                with col2:
+                    st.markdown("**Validation Set**")
+                    st.write(f"- Loss: {progress_data.get('val_loss', 0):.4f}")
+                    st.write(f"- Accuracy: {progress_data.get('val_acc', 0):.4f}")
+                    st.write(f"- Best Val Accuracy: {progress_data.get('best_val_acc', 0):.4f}")
+
+                # Display training history charts
+                if "history" in progress_data:
+                    st.markdown("#### 📊 Training History")
+                    history = progress_data["history"]
+
+                    # Create two columns for charts
+                    chart_col1, chart_col2 = st.columns(2)
+
+                    with chart_col1:
+                        st.markdown("**Loss Over Time**")
+                        loss_df = pd.DataFrame({
+                            "Epoch": list(range(1, len(history["train_loss"]) + 1)),
+                            "Training Loss": history["train_loss"],
+                            "Validation Loss": history["val_loss"]
+                        })
+                        st.line_chart(loss_df.set_index("Epoch"))
+
+                    with chart_col2:
+                        st.markdown("**Accuracy Over Time**")
+                        acc_df = pd.DataFrame({
+                            "Epoch": list(range(1, len(history["train_acc"]) + 1)),
+                            "Training Accuracy": history["train_acc"],
+                            "Validation Accuracy": history["val_acc"]
+                        })
+                        st.line_chart(acc_df.set_index("Epoch"))
+
+                if st.button("🗑️ Clear Progress", use_container_width=True):
+                    progress_file.unlink()
+                    st.rerun()
+
+            elif status == "error":
+                st.error(f"❌ Training error: {progress_data.get('message', 'Unknown error')}")
+
+                if st.button("🗑️ Clear Error", use_container_width=True):
+                    progress_file.unlink()
+                    st.rerun()
+
+            elif status in ["loading_data", "preparing"]:
+                st.info(f"⏳ {progress_data.get('message', 'Preparing...')}")
+                time.sleep(1)
+                st.rerun()
+
+        except Exception as e:
+            st.warning(f"⚠️ Could not read training progress: {e}")
+
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+
+    # Model Status
+    st.markdown("### 🤖 Current Model")
+
+    model_path = Path("models/best_model.pth")
+    if model_path.exists():
+        import os
+        model_size = os.path.getsize(model_path) / (1024 * 1024)  # MB
+        model_time = datetime.fromtimestamp(model_path.stat().st_mtime)
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📦 Model File", "best_model.pth")
+        with col2:
+            st.metric("💾 Size", f"{model_size:.1f} MB")
+        with col3:
+            st.metric("📅 Last Modified", model_time.strftime("%Y-%m-%d"))
+    else:
+        st.warning("⚠️ No trained model found. Train a model to enable file analysis.")
 
 # ====================================================================
 # PAGE: INTELLIGENCE
