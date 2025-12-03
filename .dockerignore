@@ -1,0 +1,46 @@
+# Exclude large data directories (mounted as volumes instead)
+data/
+models/
+results/
+logs/
+
+# Exclude development files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Exclude git files
+.git/
+.gitignore
+.gitattributes
+
+# Exclude IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Exclude environment files
+venv/
+env/
+.env
+
+# Exclude OS files
+.DS_Store
+Thumbs.db
+
+# Exclude documentation (if any)
+*.md
+docs/
+
+# Exclude test files
+tests/
+*.test.py
